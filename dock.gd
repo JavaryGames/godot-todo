@@ -28,75 +28,80 @@ var time = 0
 # Content Tree
 var content_tree = null
 
+# Progress bar
+var progress_bar = null
+
+# progress thread
+var thread = Thread.new()
+var progress_value = 0
+
+var auto_refresh = false
+
 
 # Called when the node enters the SceneTree
 func _enter_tree():
 	# Compiles and assign the regular expression pattern to use
-	regex.compile("(TODO|FIXME)\\:[:space:]*([^\\n]*)[:space:]*")
-	
+	regex.compile("(\\#[\\s]*(TODO|FIXME))(.*)")
 	# Create instance of our Dock
 	dock = preload("scenes/todo_list.tscn").instance()
-	
+
 	# Set Dock title
 	dock.set_name(dock_title)
 	
 	# Get the content_tree
-	content_tree = dock.get_node("background/scroll_bar/contents")
+	content_tree = dock.get_node("contents")
+	# Get progress bar
+	progress_bar = dock.get_node("progress")
 	
 	# Create TODO Icon Texture
-	texture_todo = ImageTexture.new()
-	texture_todo.load("res://addons/todo/images/todo.png")
+	texture_todo = global.resources.get_cached_resource("res://addons/todo/images/todo.png")
 	
 	# Create FIXME Icon Texture
-	texture_fixme = ImageTexture.new()
-	texture_fixme.load("res://addons/todo/images/fixme.png")
+	texture_fixme = global.resources.get_cached_resource("res://addons/todo/images/fixme.png")
 	
 	# Add the control to the lower right dock slot
 	add_control_to_dock(EditorPlugin.DOCK_SLOT_RIGHT_BL, dock)
 	
 	# Setup Signals
-	dock.get_node("tool_bar/refresh").connect("pressed", self, "populate_tree")
-	dock.get_node("tool_bar/todo").connect("pressed", self, "populate_tree", ["TODO"])
-	dock.get_node("tool_bar/fixme").connect("pressed", self, "populate_tree", ["FIXME"])
-	dock.get_node("tool_bar/auto_refresh_toggle").connect("toggled", self, "set_auto_refresh")
+	dock.get_node("tool_bar/refresh").connect("pressed", self, "start_thread")
+	dock.get_node("tool_bar/todo").connect("pressed", self, "start_thread", ["TODO"])
+	dock.get_node("tool_bar/fixme").connect("pressed", self, "start_thread", ["FIXME"])
 	
 	# Setup signal with item_activated (triggers when double clicking an item)
 	content_tree.connect("item_activated", self, "item_activated")
 	
-	# Populate Tree
-	populate_tree()
-
-
-# Sets auto refresh (via on/off switch)
-func set_auto_refresh(boolean):
-	set_process(boolean)
-
-
-# Runs when auto refresh is enabled
-func _process(delta):
-	# Increment time with delta
-	time += delta
+	progress_bar.visible = false
 	
-	# If we have exceeded our refresh_time, re-populate the content_tree
-	if(time >= refresh_time):
-		populate_tree()
-		time = 0
+	set_process(false)
+
+
+# Runs to draw progress bar
+func _process(delta):
+	if progress_bar and progress_value != progress_bar.value:
+		progress_bar.value = progress_value
 
 
 # Called when the node leaves the SceneTree
 func _exit_tree():
 	# Tool needs this in order to properly get node
-	content_tree = dock.get_node("background/scroll_bar/contents")
+	content_tree = dock.get_node("contents")
 	
 	# Disconnect signals
-	dock.get_node("tool_bar/refresh").disconnect("pressed", self, "populate_tree")
-	dock.get_node("tool_bar/todo").disconnect("pressed", self, "populate_tree")
-	dock.get_node("tool_bar/fixme").disconnect("pressed", self, "populate_tree")
-	dock.get_node("tool_bar/auto_refresh_toggle").disconnect("toggled", self, "set_auto_refresh")
+	dock.get_node("tool_bar/refresh").disconnect("pressed", self, "start_thread")
+	dock.get_node("tool_bar/todo").disconnect("pressed", self, "start_thread")
+	dock.get_node("tool_bar/fixme").disconnect("pressed", self, "start_thread")
 	
 	# Remove the control to the lower right dock slot
 	remove_control_from_docks(dock)
 
+
+# Start TODO thread
+func start_thread(data = null):
+	if not (thread.is_active()):
+		set_process(true)
+		progress_bar.visible = true
+		progress_bar.value = 0
+		thread.start(self, "populate_tree", data)
 
 # Opens the script of selected item
 func item_activated():
@@ -104,7 +109,7 @@ func item_activated():
 	var file = content_tree.get_selected().get_metadata(0)
 	
 	# Edit the given resource (script)
-	edit_resource(load(file))
+	get_editor_interface().edit_resource(load(file))
 
 
 # Populates the content tree with TODO's and FIXME's
@@ -112,7 +117,7 @@ func populate_tree(type_filter = null):
 	# Tool needs this in order to properly get node - Will
 	# output SCRIPT ERROR otherwise.
 	if(dock != null):
-		content_tree = dock.get_node("background/scroll_bar/contents")
+		content_tree = dock.get_node("contents")
 	else:
 		return
 	
@@ -131,6 +136,7 @@ func populate_tree(type_filter = null):
 	# Get all todos and fixme's
 	var files = find_all_todos()
 	
+	
 	# Filter to only get results containing TODO and FIXME
 	if(type_filter == "TODO"):
 		files = filter_results(files, "TODO")
@@ -138,9 +144,14 @@ func populate_tree(type_filter = null):
 		files = filter_results(files, "FIXME")
 	
 	# For each file
+	var file_number = 0
 	for file in files:
+		yield(get_tree(), "idle_frame")
 		var where = file["file"]
 		var todos = file["todos"]
+		file_number += 1
+		progress_value = (file_number/float(files.size()))*100
+#		progress_bar.get_node("progress_label").text = file["file"]
 		
 		# If we have todo items in the todos array
 		if(!todos.empty()):
@@ -176,6 +187,11 @@ func populate_tree(type_filter = null):
 					todo_node.set_icon(0, texture_todo)
 				elif(todo["type"] == "FIXME"):
 					todo_node.set_icon(0, texture_fixme)
+	
+	progress_bar.value = 100
+	set_process(false)
+	progress_bar.visible = false
+	thread.wait_to_finish()
 
 
 # Filter results that matches type
@@ -249,7 +265,7 @@ func find_files(directory, extensions, recur = false):
 				results.append(subfile)
 		
 		# If we are dealing with a file, and the extension matches our specific extensions
-		if(!dir.current_is_dir() && file.extension().to_lower() in extensions):
+		if(!dir.current_is_dir() && file.get_extension().to_lower() in extensions):
 			# Append file to results
 			results.append(location)
 		
@@ -298,8 +314,9 @@ func find_all_todos():
 	
 	# Look through each file in files
 	for file in files:
+		
 		# If the file is a GDScript (.gd)
-		if (file.extension().to_lower() == "gd"):
+		if (file.get_extension().to_lower() == "gd"):
 			# If we have previously checked this file, skip it
 			if(file in checked):
 				continue
@@ -318,9 +335,9 @@ func find_all_todos():
 			# Append file to checked
 			checked.append(file)
 #		# If the file is a scene (.tscn, .xscn, .scn), look for built-in scripts
-		elif (file.extension().to_lower() in ["tscn", "xscn", "scn"]):
+		elif (file.get_extension().to_lower() in ["tscn", "xscn", "scn"]):
 			# Load instance of the scene
-			var scene = load(file).instance()
+			var scene = global.resources.get_cached_resource(file).instance()
 			
 			# Load all scripts from that scene
 			var scripts = get_all_scripts(scene)
@@ -385,25 +402,25 @@ func todos_in_string(string):
 	while (string.size()):
 		# Get line
 		var line = string[0]
-		
+
 		# Remove line from string array
 		string.remove(0)
-		
+
 		# Increment line count
 		line_count += 1
-		
+
 		# Try to find pattern, return position if found
-		var pos = regex.find(line, 0)
-		
+		var regexMatch = regex.search(line, 0)
+
 		# If pos has been found
-		if(pos != -1):
+		if regexMatch:
 			# Append dictionary to todos array
 			todos.append({
 			"line": line_count, # Line Number we found the match
-			"type": regex.get_capture(1), # Type match (TODO, FIXME, etc.)
-			"text": regex.get_capture(2) # Message
+			"type": regexMatch.get_string(2), # Type match (TODO, FIXME, etc.)
+			"text" : regexMatch.get_string(3)
 			})
-	
+			
 	# Return the todos array, containing each dictionary with data needed in order
 	# to view line number, type of comment, and the message
 	return todos
