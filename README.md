@@ -14,7 +14,7 @@ for lines containing **TODO:** or **FIXME:** and displays them accordingly.
 
 ## Preview
 
-![Preview](addons/todo/images/preview.png)
+![Preview](images/preview.png)
 
 ---------
 

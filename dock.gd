@@ -5,15 +5,16 @@ tool
 extends EditorPlugin
 
 # Dock Title
-var dock_title = "TODO List"
+var dock_title = "TODOs"
 
 # Dock
 var dock = null
 
-# TODO Icon Texture
+# Underscore added to dismiss from TO_DO list
+# TO_DO Icon Texture
 var texture_todo = null
 
-# FIXME Icon Texture
+# FIX_ME Icon Texture
 var texture_fixme = null
 
 # A regular expression matcher
@@ -54,10 +55,10 @@ func _enter_tree():
 	progress_bar = dock.get_node("progress")
 	
 	# Create TODO Icon Texture
-	texture_todo = global.resources.get_cached_resource("res://addons/todo/images/todo.png")
+	texture_todo = global.resources.get_cached_resource("res://addons/godot-todo/images/todo.png")
 	
 	# Create FIXME Icon Texture
-	texture_fixme = global.resources.get_cached_resource("res://addons/todo/images/fixme.png")
+	texture_fixme = global.resources.get_cached_resource("res://addons/godot-todo/images/fixme.png")
 	
 	# Add the control to the lower right dock slot
 	add_control_to_dock(EditorPlugin.DOCK_SLOT_RIGHT_BL, dock)
